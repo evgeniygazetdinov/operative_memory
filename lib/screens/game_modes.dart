@@ -1,0 +1,1 @@
+enum MathMode { ascending, random }
