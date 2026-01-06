@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'math_trainer_screen.dart';
-import 'logic_expression_screen.dart';
 import 'game_modes.dart';
-import 'sql_joins_trainer.dart';
-import 'sql_query_builder.dart';
+import 'mental_arithmetic_chain_screen.dart';
+import 'reverse_sequence_screen.dart';
+import 'n_back_screen.dart';
 
 
 class HomeScreen extends StatelessWidget {
@@ -13,7 +13,7 @@ class HomeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Математический тренажер'),
+        title: const Text('Operative memory trainer'),
       ),
       body: Center(
         child: Column(
@@ -75,11 +75,11 @@ class HomeScreen extends StatelessWidget {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (context) => const LogicExpressionsScreen(),
+                    builder: (context) => const MentalArithmeticChainScreen(),
                   ),
                 );
               },
-              child: const Text('Логические выражения'),
+              child: const Text('Ментальная арифметика (цепочки)'),
             ),
             const SizedBox(height: 20),
             ElevatedButton(
@@ -91,11 +91,11 @@ class HomeScreen extends StatelessWidget {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (context) => const SqlJoinsTrainerScreen(),
+                    builder: (context) => const ReverseSequenceScreen(),
                   ),
                 );
               },
-              child: const Text('SQL JOIN Тренажер'),
+              child: const Text('Обратный счет (наоборот)'),
             ),
             const SizedBox(height: 20),
             ElevatedButton(
@@ -107,11 +107,11 @@ class HomeScreen extends StatelessWidget {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (context) => const SqlQueryBuilderScreen(),
+                    builder: (context) => const NBackScreen(),
                   ),
                 );
               },
-              child: const Text('SQL Query Builder'),
+              child: const Text('N-Back'),
             ),
           ],
         ),

@@ -60,6 +60,34 @@ class _MathTrainerScreenState extends State<MathTrainerScreen> {
     setState(() {});
   }
 
+  void _setLevel(int newLevel) {
+    int nextLevel = newLevel;
+    if (nextLevel < 1) nextLevel = 1;
+
+    setState(() {
+      currentLevel = nextLevel;
+      errorCount = 0;
+
+      if (widget.mode == MathMode.ascending) {
+        _numberGenerator.reset();
+        currentSum = 0;
+        isFirstNumber = true;
+      }
+
+      _answerController.clear();
+    });
+
+    _startNewExercise();
+  }
+
+  void _increaseLevel() {
+    _setLevel(currentLevel + 1);
+  }
+
+  void _decreaseLevel() {
+    _setLevel(currentLevel - 1);
+  }
+
   void _checkAnswer() {
     if (_answerController.text.isEmpty) return;
 
@@ -126,14 +154,22 @@ class _MathTrainerScreenState extends State<MathTrainerScreen> {
       appBar: AppBar(
         title: const Text(''),
         actions: [
+          IconButton(
+            onPressed: currentLevel > 1 ? _decreaseLevel : null,
+            icon: const Icon(Icons.remove),
+          ),
           Center(
             child: Padding(
-              padding: const EdgeInsets.only(right: 16.0),
+              padding: const EdgeInsets.symmetric(horizontal: 4.0),
               child: Text(
-                ' : $currentLevel',
+                '$currentLevel',
                 style: const TextStyle(fontSize: 16),
               ),
             ),
+          ),
+          IconButton(
+            onPressed: _increaseLevel,
+            icon: const Icon(Icons.add),
           ),
         ],
       ),
