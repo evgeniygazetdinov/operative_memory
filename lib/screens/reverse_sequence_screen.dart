@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import '../widgets/settings_dialog.dart';
 
 enum TokenCategory { digits, letters, specials }
 
@@ -17,6 +18,8 @@ class _ReverseSequenceScreenState extends State<ReverseSequenceScreen> {
   final TextEditingController _answerController = TextEditingController();
 
   Timer? _timer;
+
+  static const Duration _betweenChainsDelay = Duration(milliseconds: 1000);
 
   final List<({int showMs, int pauseMs})> _speedPresets = const [
     (showMs: 2000, pauseMs: 700),
@@ -38,6 +41,7 @@ class _ReverseSequenceScreenState extends State<ReverseSequenceScreen> {
   bool _isRunning = false;
   bool _isPause = false;
   bool _awaitingAnswer = false;
+  bool _isTransition = false;
 
   int _score = 0;
   int _correctInRow = 0;
@@ -50,6 +54,151 @@ class _ReverseSequenceScreenState extends State<ReverseSequenceScreen> {
     _timer?.cancel();
     _answerController.dispose();
     super.dispose();
+  }
+
+  Future<void> _showSettingsDialog() async {
+    final initial = (
+      speedPresetIndex: _speedPresetIndex,
+      length: _length,
+      categories: Set<TokenCategory>.from(_enabledCategories),
+    );
+
+    final next = await showSettingsDialog(
+      context: context,
+      title: 'Настройки',
+      initialValue: initial,
+      contentBuilder: (context, value, setValue) {
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                IconButton(
+                  onPressed: value.speedPresetIndex > 0
+                      ? () => setValue((
+                            speedPresetIndex: value.speedPresetIndex - 1,
+                            length: value.length,
+                            categories: value.categories,
+                          ))
+                      : null,
+                  icon: const Icon(Icons.remove),
+                ),
+                Text(
+                  'Скорость: ${_speedPresets[value.speedPresetIndex].showMs}ms / ${_speedPresets[value.speedPresetIndex].pauseMs}ms',
+                ),
+                IconButton(
+                  onPressed: value.speedPresetIndex < _speedPresets.length - 1
+                      ? () => setValue((
+                            speedPresetIndex: value.speedPresetIndex + 1,
+                            length: value.length,
+                            categories: value.categories,
+                          ))
+                      : null,
+                  icon: const Icon(Icons.add),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                IconButton(
+                  onPressed: value.length > 1
+                      ? () => setValue((
+                            speedPresetIndex: value.speedPresetIndex,
+                            length: value.length - 1,
+                            categories: value.categories,
+                          ))
+                      : null,
+                  icon: const Icon(Icons.remove),
+                ),
+                Text('Длина: ${value.length}'),
+                IconButton(
+                  onPressed: value.length < 50
+                      ? () => setValue((
+                            speedPresetIndex: value.speedPresetIndex,
+                            length: value.length + 1,
+                            categories: value.categories,
+                          ))
+                      : null,
+                  icon: const Icon(Icons.add),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            CheckboxListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Цифры (0-9)'),
+              value: value.categories.contains(TokenCategory.digits),
+              onChanged: (v) {
+                final nextCategories = Set<TokenCategory>.from(value.categories);
+                if (v == true) {
+                  nextCategories.add(TokenCategory.digits);
+                } else {
+                  nextCategories.remove(TokenCategory.digits);
+                }
+                setValue((
+                  speedPresetIndex: value.speedPresetIndex,
+                  length: value.length,
+                  categories: nextCategories,
+                ));
+              },
+            ),
+            CheckboxListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Буквы (A-Z)'),
+              value: value.categories.contains(TokenCategory.letters),
+              onChanged: (v) {
+                final nextCategories = Set<TokenCategory>.from(value.categories);
+                if (v == true) {
+                  nextCategories.add(TokenCategory.letters);
+                } else {
+                  nextCategories.remove(TokenCategory.letters);
+                }
+                setValue((
+                  speedPresetIndex: value.speedPresetIndex,
+                  length: value.length,
+                  categories: nextCategories,
+                ));
+              },
+            ),
+            CheckboxListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Спецсимволы'),
+              value: value.categories.contains(TokenCategory.specials),
+              onChanged: (v) {
+                final nextCategories = Set<TokenCategory>.from(value.categories);
+                if (v == true) {
+                  nextCategories.add(TokenCategory.specials);
+                } else {
+                  nextCategories.remove(TokenCategory.specials);
+                }
+                setValue((
+                  speedPresetIndex: value.speedPresetIndex,
+                  length: value.length,
+                  categories: nextCategories,
+                ));
+              },
+            ),
+          ],
+        );
+      },
+    );
+
+    if (next == null) return;
+
+    final changed = next.speedPresetIndex != initial.speedPresetIndex ||
+        next.length != initial.length ||
+        !next.categories.containsAll(initial.categories) ||
+        !initial.categories.containsAll(next.categories);
+    if (!changed) return;
+
+    _applySettingsChange(() {
+      _speedPresetIndex = next.speedPresetIndex;
+      _length = next.length;
+      _enabledCategories = next.categories;
+    });
   }
 
   void _start() {
@@ -87,8 +236,18 @@ class _ReverseSequenceScreenState extends State<ReverseSequenceScreen> {
     if (_tokenIndex >= _tokens.length) {
       setState(() {
         _isRunning = false;
-        _awaitingAnswer = true;
         _isPause = false;
+        _awaitingAnswer = false;
+        _isTransition = true;
+      });
+
+      _timer?.cancel();
+      _timer = Timer(_betweenChainsDelay, () {
+        if (!mounted) return;
+        setState(() {
+          _awaitingAnswer = true;
+          _isTransition = false;
+        });
       });
       return;
     }
@@ -114,102 +273,6 @@ class _ReverseSequenceScreenState extends State<ReverseSequenceScreen> {
     if (_isRunning || _awaitingAnswer) {
       _start();
     }
-  }
-
-  String _speedLabel() {
-    final preset = _speedPresets[_speedPresetIndex];
-    return '${preset.showMs}ms / ${preset.pauseMs}ms';
-  }
-
-  String _categoriesLabel() {
-    final parts = <String>[];
-    if (_enabledCategories.contains(TokenCategory.digits)) parts.add('цифры');
-    if (_enabledCategories.contains(TokenCategory.letters)) parts.add('буквы');
-    if (_enabledCategories.contains(TokenCategory.specials)) parts.add('спец');
-    if (parts.isEmpty) return 'нет';
-    return parts.join(', ');
-  }
-
-  Future<void> _showCategoriesDialog() async {
-    final current = Set<TokenCategory>.from(_enabledCategories);
-    Set<TokenCategory> temp = Set<TokenCategory>.from(_enabledCategories);
-
-    final result = await showDialog<Set<TokenCategory>>(
-      context: context,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setLocalState) {
-            return AlertDialog(
-              title: const Text('Набор символов'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  CheckboxListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Цифры (0-9)'),
-                    value: temp.contains(TokenCategory.digits),
-                    onChanged: (v) {
-                      setLocalState(() {
-                        if (v == true) {
-                          temp.add(TokenCategory.digits);
-                        } else {
-                          temp.remove(TokenCategory.digits);
-                        }
-                      });
-                    },
-                  ),
-                  CheckboxListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Буквы (A-Z)'),
-                    value: temp.contains(TokenCategory.letters),
-                    onChanged: (v) {
-                      setLocalState(() {
-                        if (v == true) {
-                          temp.add(TokenCategory.letters);
-                        } else {
-                          temp.remove(TokenCategory.letters);
-                        }
-                      });
-                    },
-                  ),
-                  CheckboxListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Спецсимволы'),
-                    value: temp.contains(TokenCategory.specials),
-                    onChanged: (v) {
-                      setLocalState(() {
-                        if (v == true) {
-                          temp.add(TokenCategory.specials);
-                        } else {
-                          temp.remove(TokenCategory.specials);
-                        }
-                      });
-                    },
-                  ),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(null),
-                  child: const Text('Отмена'),
-                ),
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(temp),
-                  child: const Text('ОК'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-
-    if (result == null) return;
-    if (result.length == current.length && result.containsAll(current)) return;
-
-    _applySettingsChange(() {
-      _enabledCategories = result;
-    });
   }
 
   List<String> _generateTokens(int length) {
@@ -296,7 +359,16 @@ class _ReverseSequenceScreenState extends State<ReverseSequenceScreen> {
       ),
     );
 
-    _start();
+    _timer?.cancel();
+    setState(() {
+      _awaitingAnswer = false;
+      _isTransition = true;
+    });
+
+    _timer = Timer(_betweenChainsDelay, () {
+      if (!mounted) return;
+      _start();
+    });
   }
 
   @override
@@ -308,177 +380,120 @@ class _ReverseSequenceScreenState extends State<ReverseSequenceScreen> {
       } else if (_tokenIndex < _tokens.length) {
         currentText = _tokens[_tokenIndex];
       }
+    } else if (_isTransition) {
+      currentText = '';
     }
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Обратный счет (наоборот)'),
+        actions: [
+          IconButton(
+            onPressed: _showSettingsDialog,
+            icon: const Icon(Icons.settings),
+          ),
+        ],
+      ),
+      bottomNavigationBar: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(12.0),
+          child: Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              ElevatedButton(
+                onPressed: _isRunning ? null : _start,
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                ),
+                child: const Text('Старт'),
+              ),
+              ElevatedButton(
+                onPressed: (!_awaitingAnswer || _isRunning) ? null : _submitAnswer,
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                ),
+                child: const Text('ОК'),
+              ),
+              ElevatedButton(
+                onPressed: (_isRunning || _awaitingAnswer) ? _stop : null,
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                ),
+                child: const Text('Стоп'),
+              ),
+            ],
+          ),
+        ),
       ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            Text(
-              'Счет: $_score',
-              style: const TextStyle(fontSize: 20),
-            ),
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                IconButton(
-                  onPressed: _speedPresetIndex > 0
-                      ? () {
-                          _applySettingsChange(() {
-                            _speedPresetIndex--;
-                          });
-                        }
-                      : null,
-                  icon: const Icon(Icons.remove),
+        child: SingleChildScrollView(
+          child: Column(
+            children: [
+              Text(
+                'Счет: $_score',
+                style: const TextStyle(fontSize: 20),
+              ),
+              const SizedBox(height: 16),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+                decoration: BoxDecoration(
+                  border: Border.all(color: Colors.grey),
+                  borderRadius: BorderRadius.circular(8),
                 ),
-                Text('Скорость: ${_speedLabel()}'),
-                IconButton(
-                  onPressed: _speedPresetIndex < _speedPresets.length - 1
-                      ? () {
-                          _applySettingsChange(() {
-                            _speedPresetIndex++;
-                          });
-                        }
-                      : null,
-                  icon: const Icon(Icons.add),
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text('Набор: ${_categoriesLabel()}'),
-                const SizedBox(width: 8),
-                ElevatedButton(
-                  onPressed: _showCategoriesDialog,
-                  child: const Text('Выбрать'),
-                ),
-              ],
-            ),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                IconButton(
-                  onPressed: _length > 1
-                      ? () {
-                          _applySettingsChange(() {
-                            _length--;
-                          });
-                        }
-                      : null,
-                  icon: const Icon(Icons.remove),
-                ),
-                Text('Длина: $_length'),
-                IconButton(
-                  onPressed: _length < 50
-                      ? () {
-                          _applySettingsChange(() {
-                            _length++;
-                          });
-                        }
-                      : null,
-                  icon: const Icon(Icons.add),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Colors.grey),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      currentText ?? (_awaitingAnswer ? 'Введите в обратном порядке' : 'Нажмите Старт'),
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: 48,
-                        fontWeight: FontWeight.bold,
-                        fontFamily: 'Monospace',
-                      ),
-                    ),
+                child: Text(
+                  currentText ?? (_awaitingAnswer ? 'Введите в обратном порядке' : 'Нажмите Старт'),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 48,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'Monospace',
                   ),
-                  const SizedBox(height: 24),
-                  if (_awaitingAnswer)
-                    SizedBox(
-                      width: 260,
-                      child: TextField(
-                        controller: _answerController,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
-                          fontFamily: 'Monospace',
-                        ),
-                        decoration: const InputDecoration(
-                          border: UnderlineInputBorder(),
-                          contentPadding: EdgeInsets.zero,
-                        ),
-                        onSubmitted: (_) => _submitAnswer(),
-                      ),
+                ),
+              ),
+              const SizedBox(height: 24),
+              if (_awaitingAnswer)
+                SizedBox(
+                  width: 260,
+                  child: TextField(
+                    controller: _answerController,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'Monospace',
                     ),
-                  const SizedBox(height: 16),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      ElevatedButton(
-                        onPressed: _isRunning ? null : _start,
-                        style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                        ),
-                        child: const Text('Старт'),
-                      ),
-                      const SizedBox(width: 12),
-                      ElevatedButton(
-                        onPressed: (!_awaitingAnswer || _isRunning) ? null : _submitAnswer,
-                        style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                        ),
-                        child: const Text('ОК'),
-                      ),
-                      const SizedBox(width: 12),
-                      ElevatedButton(
-                        onPressed: (_isRunning || _awaitingAnswer) ? _stop : null,
-                        style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                        ),
-                        child: const Text('Стоп'),
-                      ),
-                    ],
+                    decoration: const InputDecoration(
+                      border: UnderlineInputBorder(),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                    onSubmitted: (_) => _submitAnswer(),
                   ),
-                ],
+                ),
+              const SizedBox(height: 16),
+              Container(
+                height: 180,
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  border: Border.all(color: Colors.grey),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: ListView.builder(
+                  itemCount: _history.length,
+                  reverse: true,
+                  itemBuilder: (context, index) {
+                    return Text(
+                      _history[_history.length - 1 - index],
+                      style: const TextStyle(fontSize: 14),
+                    );
+                  },
+                ),
               ),
-            ),
-            Container(
-              height: 180,
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                border: Border.all(color: Colors.grey),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: ListView.builder(
-                itemCount: _history.length,
-                reverse: true,
-                itemBuilder: (context, index) {
-                  return Text(
-                    _history[_history.length - 1 - index],
-                    style: const TextStyle(fontSize: 14),
-                  );
-                },
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

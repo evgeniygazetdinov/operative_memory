@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import '../widgets/settings_dialog.dart';
 
 class NBackStimulus {
   final int pos;
@@ -101,6 +102,87 @@ class _NBackScreenState extends State<NBackScreen> {
     }
   }
 
+  Future<void> _showSettingsDialog() async {
+    final initial = (
+      speedPresetIndex: _speedPresetIndex,
+      n: _n,
+    );
+
+    final next = await showSettingsDialog(
+      context: context,
+      title: 'Настройки',
+      initialValue: initial,
+      contentBuilder: (context, value, setValue) {
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                IconButton(
+                  onPressed: value.speedPresetIndex > 0
+                      ? () => setValue((
+                            speedPresetIndex: value.speedPresetIndex - 1,
+                            n: value.n,
+                          ))
+                      : null,
+                  icon: const Icon(Icons.remove),
+                ),
+                Text(
+                  'Скорость: ${_speedPresets[value.speedPresetIndex].showMs}ms / ${_speedPresets[value.speedPresetIndex].pauseMs}ms',
+                ),
+                IconButton(
+                  onPressed: value.speedPresetIndex < _speedPresets.length - 1
+                      ? () => setValue((
+                            speedPresetIndex: value.speedPresetIndex + 1,
+                            n: value.n,
+                          ))
+                      : null,
+                  icon: const Icon(Icons.add),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Text('N:'),
+                const SizedBox(width: 8),
+                ChoiceChip(
+                  label: const Text('2-back'),
+                  selected: value.n == 2,
+                  onSelected: (_) => setValue((
+                    speedPresetIndex: value.speedPresetIndex,
+                    n: 2,
+                  )),
+                ),
+                const SizedBox(width: 8),
+                ChoiceChip(
+                  label: const Text('3-back'),
+                  selected: value.n == 3,
+                  onSelected: (_) => setValue((
+                    speedPresetIndex: value.speedPresetIndex,
+                    n: 3,
+                  )),
+                ),
+              ],
+            ),
+          ],
+        );
+      },
+    );
+
+    if (next == null) return;
+
+    final changed = next.speedPresetIndex != initial.speedPresetIndex || next.n != initial.n;
+    if (!changed) return;
+
+    _applySettingsChange(() {
+      _speedPresetIndex = next.speedPresetIndex;
+      _n = next.n;
+    });
+  }
+
   void _scheduleTick(Duration delay) {
     _timer?.cancel();
     _timer = Timer(delay, _tick);
@@ -189,11 +271,6 @@ class _NBackScreenState extends State<NBackScreen> {
     }
   }
 
-  String _speedLabel() {
-    final preset = _speedPresets[_speedPresetIndex];
-    return '${preset.showMs}ms / ${preset.pauseMs}ms';
-  }
-
   Widget _buildGrid() {
     final activeIndex = (!_isRunning || _isPause || _current == null) ? null : _current!.pos;
 
@@ -228,6 +305,12 @@ class _NBackScreenState extends State<NBackScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('N-Back'),
+        actions: [
+          IconButton(
+            onPressed: _showSettingsDialog,
+            icon: const Icon(Icons.settings),
+          ),
+        ],
       ),
       bottomNavigationBar: SafeArea(
         child: Padding(
@@ -252,60 +335,6 @@ class _NBackScreenState extends State<NBackScreen> {
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                IconButton(
-                  onPressed: _speedPresetIndex > 0
-                      ? () {
-                          _applySettingsChange(() {
-                            _speedPresetIndex--;
-                          });
-                        }
-                      : null,
-                  icon: const Icon(Icons.remove),
-                ),
-                Text('Скорость: ${_speedLabel()}'),
-                IconButton(
-                  onPressed: _speedPresetIndex < _speedPresets.length - 1
-                      ? () {
-                          _applySettingsChange(() {
-                            _speedPresetIndex++;
-                          });
-                        }
-                      : null,
-                  icon: const Icon(Icons.add),
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Text('N:'),
-                const SizedBox(width: 8),
-                ChoiceChip(
-                  label: const Text('2-back'),
-                  selected: _n == 2,
-                  onSelected: (_) {
-                    _applySettingsChange(() {
-                      _n = 2;
-                    });
-                  },
-                ),
-                const SizedBox(width: 8),
-                ChoiceChip(
-                  label: const Text('3-back'),
-                  selected: _n == 3,
-                  onSelected: (_) {
-                    _applySettingsChange(() {
-                      _n = 3;
-                    });
-                  },
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
             Expanded(
               child: Row(
                 children: [

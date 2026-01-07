@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import '../widgets/settings_dialog.dart';
 
 enum ChainOperation { add, subtract, multiply, divide }
 
@@ -24,6 +25,8 @@ class _MentalArithmeticChainScreenState extends State<MentalArithmeticChainScree
   final TextEditingController _answerController = TextEditingController();
 
   Timer? _timer;
+
+  static const Duration _betweenChainsDelay = Duration(milliseconds: 1000);
 
   final List<({int showMs, int pauseMs})> _speedPresets = const [
     (showMs: 1500, pauseMs: 600),
@@ -48,12 +51,15 @@ class _MentalArithmeticChainScreenState extends State<MentalArithmeticChainScree
   int _errorsInRow = 0;
 
   List<ChainStep> _steps = [];
+  List<ChainStep> _lastSteps = [];
   int _stepIndex = 0;
   bool _isRunning = false;
   bool _isPause = false;
   bool _awaitingAnswer = false;
+  bool _isTransition = false;
 
   int _correctAnswer = 0;
+  int _lastCorrectAnswer = 0;
   final List<String> _history = [];
 
   @override
@@ -61,6 +67,169 @@ class _MentalArithmeticChainScreenState extends State<MentalArithmeticChainScree
     _timer?.cancel();
     _answerController.dispose();
     super.dispose();
+  }
+
+  Future<void> _showSettingsDialog() async {
+    final initial = (
+      speedPresetIndex: _speedPresetIndex,
+      stepsCount: _stepsCount,
+      ops: Set<ChainOperation>.from(_enabledOps),
+    );
+
+    final next = await showSettingsDialog(
+      context: context,
+      title: 'Настройки',
+      initialValue: initial,
+      contentBuilder: (context, value, setValue) {
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                IconButton(
+                  onPressed: value.speedPresetIndex > 0
+                      ? () => setValue((
+                            speedPresetIndex: value.speedPresetIndex - 1,
+                            stepsCount: value.stepsCount,
+                            ops: value.ops,
+                          ))
+                      : null,
+                  icon: const Icon(Icons.remove),
+                ),
+                Text(
+                  'Скорость: ${_speedPresets[value.speedPresetIndex].showMs}ms / ${_speedPresets[value.speedPresetIndex].pauseMs}ms',
+                ),
+                IconButton(
+                  onPressed: value.speedPresetIndex < _speedPresets.length - 1
+                      ? () => setValue((
+                            speedPresetIndex: value.speedPresetIndex + 1,
+                            stepsCount: value.stepsCount,
+                            ops: value.ops,
+                          ))
+                      : null,
+                  icon: const Icon(Icons.add),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                IconButton(
+                  onPressed: value.stepsCount > 1
+                      ? () => setValue((
+                            speedPresetIndex: value.speedPresetIndex,
+                            stepsCount: value.stepsCount - 1,
+                            ops: value.ops,
+                          ))
+                      : null,
+                  icon: const Icon(Icons.remove),
+                ),
+                Text('Длина цепочки: ${value.stepsCount}'),
+                IconButton(
+                  onPressed: value.stepsCount < 50
+                      ? () => setValue((
+                            speedPresetIndex: value.speedPresetIndex,
+                            stepsCount: value.stepsCount + 1,
+                            ops: value.ops,
+                          ))
+                      : null,
+                  icon: const Icon(Icons.add),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            CheckboxListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('+'),
+              value: value.ops.contains(ChainOperation.add),
+              onChanged: (v) {
+                final nextOps = Set<ChainOperation>.from(value.ops);
+                if (v == true) {
+                  nextOps.add(ChainOperation.add);
+                } else {
+                  nextOps.remove(ChainOperation.add);
+                }
+                setValue((
+                  speedPresetIndex: value.speedPresetIndex,
+                  stepsCount: value.stepsCount,
+                  ops: nextOps,
+                ));
+              },
+            ),
+            CheckboxListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('-'),
+              value: value.ops.contains(ChainOperation.subtract),
+              onChanged: (v) {
+                final nextOps = Set<ChainOperation>.from(value.ops);
+                if (v == true) {
+                  nextOps.add(ChainOperation.subtract);
+                } else {
+                  nextOps.remove(ChainOperation.subtract);
+                }
+                setValue((
+                  speedPresetIndex: value.speedPresetIndex,
+                  stepsCount: value.stepsCount,
+                  ops: nextOps,
+                ));
+              },
+            ),
+            CheckboxListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('*'),
+              value: value.ops.contains(ChainOperation.multiply),
+              onChanged: (v) {
+                final nextOps = Set<ChainOperation>.from(value.ops);
+                if (v == true) {
+                  nextOps.add(ChainOperation.multiply);
+                } else {
+                  nextOps.remove(ChainOperation.multiply);
+                }
+                setValue((
+                  speedPresetIndex: value.speedPresetIndex,
+                  stepsCount: value.stepsCount,
+                  ops: nextOps,
+                ));
+              },
+            ),
+            CheckboxListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('/'),
+              value: value.ops.contains(ChainOperation.divide),
+              onChanged: (v) {
+                final nextOps = Set<ChainOperation>.from(value.ops);
+                if (v == true) {
+                  nextOps.add(ChainOperation.divide);
+                } else {
+                  nextOps.remove(ChainOperation.divide);
+                }
+                setValue((
+                  speedPresetIndex: value.speedPresetIndex,
+                  stepsCount: value.stepsCount,
+                  ops: nextOps,
+                ));
+              },
+            ),
+          ],
+        );
+      },
+    );
+
+    if (next == null) return;
+
+    final changed = next.speedPresetIndex != initial.speedPresetIndex ||
+        next.stepsCount != initial.stepsCount ||
+        !next.ops.containsAll(initial.ops) ||
+        !initial.ops.containsAll(next.ops);
+    if (!changed) return;
+
+    _applySettingsChange(() {
+      _speedPresetIndex = next.speedPresetIndex;
+      _stepsCount = next.stepsCount;
+      _enabledOps = next.ops;
+    });
   }
 
   void _start() {
@@ -88,6 +257,23 @@ class _MentalArithmeticChainScreenState extends State<MentalArithmeticChainScree
     });
   }
 
+  void _replayLast() {
+    if (_lastSteps.isEmpty) return;
+
+    _timer?.cancel();
+    setState(() {
+      _steps = List<ChainStep>.from(_lastSteps);
+      _correctAnswer = _lastCorrectAnswer;
+      _stepIndex = 0;
+      _isRunning = true;
+      _isPause = false;
+      _awaitingAnswer = false;
+      _answerController.clear();
+    });
+
+    _scheduleTick(Duration(milliseconds: _speedPresets[_speedPresetIndex].showMs));
+  }
+
   void _scheduleTick(Duration delay) {
     _timer?.cancel();
     _timer = Timer(delay, _tick);
@@ -98,9 +284,23 @@ class _MentalArithmeticChainScreenState extends State<MentalArithmeticChainScree
 
     if (_stepIndex >= _steps.length) {
       setState(() {
+        if (_steps.isNotEmpty) {
+          _lastSteps = List<ChainStep>.from(_steps);
+          _lastCorrectAnswer = _correctAnswer;
+        }
         _isRunning = false;
-        _awaitingAnswer = true;
         _isPause = false;
+        _awaitingAnswer = false;
+        _isTransition = true;
+      });
+
+      _timer?.cancel();
+      _timer = Timer(_betweenChainsDelay, () {
+        if (!mounted) return;
+        setState(() {
+          _awaitingAnswer = true;
+          _isTransition = false;
+        });
       });
       return;
     }
@@ -222,117 +422,6 @@ class _MentalArithmeticChainScreenState extends State<MentalArithmeticChainScree
     }
   }
 
-  String _speedLabel() {
-    final preset = _speedPresets[_speedPresetIndex];
-    return '${preset.showMs}ms / ${preset.pauseMs}ms';
-  }
-
-  String _operationsLabel() {
-    final parts = <String>[];
-    if (_enabledOps.contains(ChainOperation.add)) parts.add('+');
-    if (_enabledOps.contains(ChainOperation.subtract)) parts.add('-');
-    if (_enabledOps.contains(ChainOperation.multiply)) parts.add('*');
-    if (_enabledOps.contains(ChainOperation.divide)) parts.add('/');
-    if (parts.isEmpty) return 'нет';
-    return parts.join(' ');
-  }
-
-  Future<void> _showOperationsDialog() async {
-    final current = Set<ChainOperation>.from(_enabledOps);
-    Set<ChainOperation> temp = Set<ChainOperation>.from(_enabledOps);
-
-    final result = await showDialog<Set<ChainOperation>>(
-      context: context,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setLocalState) {
-            return AlertDialog(
-              title: const Text('Операции'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  CheckboxListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('+'),
-                    value: temp.contains(ChainOperation.add),
-                    onChanged: (v) {
-                      setLocalState(() {
-                        if (v == true) {
-                          temp.add(ChainOperation.add);
-                        } else {
-                          temp.remove(ChainOperation.add);
-                        }
-                      });
-                    },
-                  ),
-                  CheckboxListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('-'),
-                    value: temp.contains(ChainOperation.subtract),
-                    onChanged: (v) {
-                      setLocalState(() {
-                        if (v == true) {
-                          temp.add(ChainOperation.subtract);
-                        } else {
-                          temp.remove(ChainOperation.subtract);
-                        }
-                      });
-                    },
-                  ),
-                  CheckboxListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('*'),
-                    value: temp.contains(ChainOperation.multiply),
-                    onChanged: (v) {
-                      setLocalState(() {
-                        if (v == true) {
-                          temp.add(ChainOperation.multiply);
-                        } else {
-                          temp.remove(ChainOperation.multiply);
-                        }
-                      });
-                    },
-                  ),
-                  CheckboxListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('/'),
-                    value: temp.contains(ChainOperation.divide),
-                    onChanged: (v) {
-                      setLocalState(() {
-                        if (v == true) {
-                          temp.add(ChainOperation.divide);
-                        } else {
-                          temp.remove(ChainOperation.divide);
-                        }
-                      });
-                    },
-                  ),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(null),
-                  child: const Text('Отмена'),
-                ),
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(temp),
-                  child: const Text('ОК'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-
-    if (result == null) return;
-    if (result.length == current.length && result.containsAll(current)) return;
-
-    _applySettingsChange(() {
-      _enabledOps = result;
-    });
-  }
-
   void _submitAnswer() {
     if (!_awaitingAnswer) return;
 
@@ -375,7 +464,16 @@ class _MentalArithmeticChainScreenState extends State<MentalArithmeticChainScree
       ),
     );
 
-    _start();
+    _timer?.cancel();
+    setState(() {
+      _awaitingAnswer = false;
+      _isTransition = true;
+    });
+
+    _timer = Timer(_betweenChainsDelay, () {
+      if (!mounted) return;
+      _start();
+    });
   }
 
   String _formatStep(ChainStep step) {
@@ -400,12 +498,18 @@ class _MentalArithmeticChainScreenState extends State<MentalArithmeticChainScree
       } else if (_stepIndex < _steps.length) {
         currentText = _formatStep(_steps[_stepIndex]);
       }
+    } else if (_isTransition) {
+      currentText = '';
     }
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Ментальная арифметика (цепочки)'),
         actions: [
+          IconButton(
+            onPressed: _showSettingsDialog,
+            icon: const Icon(Icons.settings),
+          ),
           Center(
             child: Padding(
               padding: const EdgeInsets.only(right: 16.0),
@@ -417,172 +521,114 @@ class _MentalArithmeticChainScreenState extends State<MentalArithmeticChainScree
           ),
         ],
       ),
+      bottomNavigationBar: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(12.0),
+          child: Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              ElevatedButton(
+                onPressed: _isRunning ? null : _start,
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                ),
+                child: const Text('Старт'),
+              ),
+              ElevatedButton(
+                onPressed: _lastSteps.isNotEmpty && !_isRunning ? _replayLast : null,
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                ),
+                child: const Text('Показать еще раз'),
+              ),
+              ElevatedButton(
+                onPressed: (!_awaitingAnswer || _isRunning) ? null : _submitAnswer,
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                ),
+                child: const Text('ОК'),
+              ),
+              ElevatedButton(
+                onPressed: (_isRunning || _awaitingAnswer) ? _stop : null,
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                ),
+                child: const Text('Стоп'),
+              ),
+            ],
+          ),
+        ),
+      ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            Text(
-              'Счет: $_score',
-              style: const TextStyle(fontSize: 20),
-            ),
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                IconButton(
-                  onPressed: _speedPresetIndex > 0
-                      ? () {
-                          _applySettingsChange(() {
-                            _speedPresetIndex--;
-                          });
-                        }
-                      : null,
-                  icon: const Icon(Icons.remove),
+        child: SingleChildScrollView(
+          child: Column(
+            children: [
+              Text(
+                'Счет: $_score',
+                style: const TextStyle(fontSize: 20),
+              ),
+              const SizedBox(height: 16),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+                decoration: BoxDecoration(
+                  border: Border.all(color: Colors.grey),
+                  borderRadius: BorderRadius.circular(8),
                 ),
-                Text('Скорость: ${_speedLabel()}'),
-                IconButton(
-                  onPressed: _speedPresetIndex < _speedPresets.length - 1
-                      ? () {
-                          _applySettingsChange(() {
-                            _speedPresetIndex++;
-                          });
-                        }
-                      : null,
-                  icon: const Icon(Icons.add),
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text('Операции: ${_operationsLabel()}'),
-                const SizedBox(width: 8),
-                ElevatedButton(
-                  onPressed: _showOperationsDialog,
-                  child: const Text('Выбрать'),
-                ),
-              ],
-            ),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                IconButton(
-                  onPressed: _stepsCount > 1
-                      ? () {
-                          _applySettingsChange(() {
-                            _stepsCount--;
-                          });
-                        }
-                      : null,
-                  icon: const Icon(Icons.remove),
-                ),
-                Text('Длина цепочки: $_stepsCount'),
-                IconButton(
-                  onPressed: _stepsCount < 50
-                      ? () {
-                          _applySettingsChange(() {
-                            _stepsCount++;
-                          });
-                        }
-                      : null,
-                  icon: const Icon(Icons.add),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Colors.grey),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      currentText ?? (_awaitingAnswer ? 'Введите итог' : 'Нажмите Старт'),
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: 48,
-                        fontWeight: FontWeight.bold,
-                        fontFamily: 'Monospace',
-                      ),
-                    ),
+                child: Text(
+                  currentText ?? (_awaitingAnswer ? 'Введите итог' : 'Нажмите Старт'),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 48,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'Monospace',
                   ),
-                  const SizedBox(height: 24),
-                  if (_awaitingAnswer)
-                    SizedBox(
-                      width: 200,
-                      child: TextField(
-                        controller: _answerController,
-                        keyboardType: TextInputType.number,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          fontSize: 28,
-                          fontWeight: FontWeight.bold,
-                          fontFamily: 'Monospace',
-                        ),
-                        decoration: const InputDecoration(
-                          border: UnderlineInputBorder(),
-                          contentPadding: EdgeInsets.zero,
-                        ),
-                        onSubmitted: (_) => _submitAnswer(),
-                      ),
+                ),
+              ),
+              const SizedBox(height: 24),
+              if (_awaitingAnswer)
+                SizedBox(
+                  width: 200,
+                  child: TextField(
+                    controller: _answerController,
+                    keyboardType: TextInputType.number,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'Monospace',
                     ),
-                  const SizedBox(height: 16),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      ElevatedButton(
-                        onPressed: _isRunning ? null : _start,
-                        style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                        ),
-                        child: const Text('Старт'),
-                      ),
-                      const SizedBox(width: 12),
-                      ElevatedButton(
-                        onPressed: (!_awaitingAnswer || _isRunning) ? null : _submitAnswer,
-                        style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                        ),
-                        child: const Text('ОК'),
-                      ),
-                      const SizedBox(width: 12),
-                      ElevatedButton(
-                        onPressed: (_isRunning || _awaitingAnswer) ? _stop : null,
-                        style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                        ),
-                        child: const Text('Стоп'),
-                      ),
-                    ],
+                    decoration: const InputDecoration(
+                      border: UnderlineInputBorder(),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                    onSubmitted: (_) => _submitAnswer(),
                   ),
-                ],
+                ),
+              const SizedBox(height: 16),
+              Container(
+                height: 180,
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  border: Border.all(color: Colors.grey),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: ListView.builder(
+                  itemCount: _history.length,
+                  reverse: true,
+                  itemBuilder: (context, index) {
+                    return Text(
+                      _history[_history.length - 1 - index],
+                      style: const TextStyle(fontSize: 14),
+                    );
+                  },
+                ),
               ),
-            ),
-            Container(
-              height: 180,
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                border: Border.all(color: Colors.grey),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: ListView.builder(
-                itemCount: _history.length,
-                reverse: true,
-                itemBuilder: (context, index) {
-                  return Text(
-                    _history[_history.length - 1 - index],
-                    style: const TextStyle(fontSize: 14),
-                  );
-                },
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
